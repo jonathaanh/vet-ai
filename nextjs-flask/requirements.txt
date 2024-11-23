@@ -2,3 +2,5 @@ Flask==3.0.3
 python-dotenv==1.0.1
 langchain-openai==0.2.9
 langchain==0.3.7
+supabase==2.10.0
+flask-cors==3.0.10

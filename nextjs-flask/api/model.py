@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.schema import HumanMessage
-
 
 def queryModel(text):
 	load_dotenv()
@@ -17,3 +16,10 @@ def queryModel(text):
 	except Exception as e:
 		print(f"Error in model query: {str(e)}")
 		raise e
+
+
+
+def getEmbeddings(text):
+	load_dotenv()
+	embeddings = OpenAIEmbeddings()
+	return embeddings.embed_query(text)

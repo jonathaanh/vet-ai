@@ -4,9 +4,10 @@ import React, { useState } from "react";
 
 interface QueryBoxProps {
 	onResponseReceived: (response: string) => void;
+	onLoading: (loading: boolean) => void;
 }
 
-export default function QueryBox({ onResponseReceived }: QueryBoxProps) {
+export default function QueryBox({ onResponseReceived, onLoading }: QueryBoxProps) {
 	const [query, setQuery] = useState("");
 
 	const calculateCharCount = (text: string) => {
@@ -16,6 +17,7 @@ export default function QueryBox({ onResponseReceived }: QueryBoxProps) {
 	const charCount = calculateCharCount(query);
 
 	const askVetAI = async() => {
+		onLoading(true);
 		try {
 			const response = await fetch('/api/ask_model', {
 				method: 'POST',
@@ -37,6 +39,8 @@ export default function QueryBox({ onResponseReceived }: QueryBoxProps) {
 		} catch (error) {
 			console.error('Error:', error);
 			throw error;
+		} finally {
+			onLoading(false);
 		}
 	}
 
@@ -56,7 +60,7 @@ export default function QueryBox({ onResponseReceived }: QueryBoxProps) {
 					Ask VetAI
 				</button>
 				<div className="mt-2 text-sm text-gray-600">
-					Chracter Count: {charCount}/1000
+					Chracter Count: {charCount}
 				</div>
 			</div>
           </div>
