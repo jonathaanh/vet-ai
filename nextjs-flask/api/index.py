@@ -5,8 +5,9 @@ from psycopg2.extras import RealDictCursor
 from werkzeug.utils import secure_filename
 from supabase import create_client, Client
 import tempfile
-import logging
 import os
+from io import BytesIO
+import docx
 from pinecone import Pinecone, ServerlessSpec
 from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
 from langchain_text_splitters import CharacterTextSplitter
@@ -14,61 +15,11 @@ from langchain_pinecone import PineconeVectorStore
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.schema import SystemMessage, HumanMessage
 from langchain_community.document_loaders import FireCrawlLoader
+from langchain.schema import Document
 
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
-APP_SECRETS = {}
 
-def initialize_pinecone():
-    pinecone = Pinecone(api_key=APP_SECRETS.get('Pinecone'))
-    try:
-        index = pinecone.Index("vetai-docs")
-        logger.info("Successfully connected to existing index")
-        return index
-    except Exception as e:
-        if "vetai-docs" not in pinecone.list_indexes():
-            pinecone.create_index(
-                name="vetai-docs",
-                dimension=1536,
-                metric="cosine",
-                spec=ServerlessSpec(
-                    cloud="aws",
-                    region="us-east-1"
-                ) 
-            )
-        return pinecone.Index("vetai-docs")
-
-def initialize_secrets():
-    try:
-        conn = psycopg2.connect(
-            user="postgres.hdknwxzhmxotruzjjxio",
-            password="cwRPXu5mSQUL5XHz",
-            host="aws-0-us-west-1.pooler.supabase.com",
-            port="6543",
-            dbname="postgres"
-        )
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
-            select *
-            from vault.decrypted_secrets
-            order by created_at desc
-            limit 3
-        """)
-        
-        secrets = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        global APP_SECRETS
-        APP_SECRETS = {secret['name']: secret['decrypted_secret'] for secret in secrets}
-
-    except Exception as e:
-        logger.error(f"Error initializing secrets: {str(e)}")
-        raise
     
 @app.route("/api/search_documents", methods=['POST'])
 def search_documents():
@@ -78,9 +29,11 @@ def search_documents():
         
         if not query:
             return jsonify({'error': 'No query provided'}), 400
-            
+        
+        pc = Pinecone(api_key=os.environ.get('PINECONE_API_KEY'))
+
         embeddings = OpenAIEmbeddings(
-            api_key=APP_SECRETS.get('openai-api'),
+            api_key=os.environ.get('OPENAI_API_KEY'),
             model="text-embedding-3-small"
         )
         vector_store = PineconeVectorStore(
@@ -100,7 +53,7 @@ def search_documents():
             + "\n\nPlease provide an answer based only on the provided documents. If the answer is not found in the documents, respond with 'I'm not sure'."
         )
         model = ChatOpenAI(
-            api_key=APP_SECRETS.get('openai-api'),
+            api_key=os.environ.get('OPENAI_API_KEY'),
             model="gpt-4"
         )
         messages = [
@@ -121,8 +74,8 @@ def search_documents():
 @app.route("/api/get_files", methods=['GET'])
 def get_files():
     try:
-        url = "https://hdknwxzhmxotruzjjxio.supabase.co"
-        key = APP_SECRETS.get('Supabase')
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
         if not url or not key:
             return jsonify({'error': 'Supabase URL or Key is missing'}), 500
         supabase = create_client(url, key)
@@ -138,9 +91,8 @@ def delete_files():
         if not data or 'file_name' not in data:
             return jsonify({'error': 'No file part'}), 400
         file_name = data['file_name']
-        url = "https://hdknwxzhmxotruzjjxio.supabase.co"
-        key = APP_SECRETS.get('Supabase')
-        pc = Pinecone(api_key=APP_SECRETS.get('Pinecone'))
+
+        pc = Pinecone(api_key=os.environ.get('PINECONE_API_KEY'))
         index = pc.Index("vetai-docs")
         results = index.query(
             vector=[0] * 1536,
@@ -157,10 +109,10 @@ def delete_files():
                     ids=ids_to_delete
                 )
             except Exception as e:
-                logger.error(f'Error deleting vectors: {str(e)}')
                 raise
-        else:
-            logger.info('No matching vectors found to delete')
+            
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
         supabase = create_client(url, key)
         supabase.table("files").delete().eq("file_name", file_name).execute()
 
@@ -174,28 +126,26 @@ def upload_file():
         if 'file' not in request.files:
             return jsonify({'error': 'No file part'}), 400
         file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
+        file_content = file.read()
 
         filename = secure_filename(file.filename)
         file_size = int(request.form.get('file_size', 0))
+        pc = Pinecone(api_key=os.environ.get('PINECONE_API_KEY'))
         embeddings = OpenAIEmbeddings(
-            api_key=APP_SECRETS.get('openai-api'),
+            api_key=os.environ.get('OPENAI_API_KEY'),
             model="text-embedding-3-small"
         )
-        suffix = os.path.splitext(file.filename)[1]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            file.save(temp_file.name)
-            
-            if suffix == '.pdf':
-                loader = PyPDFLoader(temp_file.name)
-            elif suffix == '.docx':
-                loader = Docx2txtLoader(temp_file.name)
-            else:
-                loader = TextLoader(temp_file.name)
-            
-        documents = loader.load()
-        os.unlink(temp_file.name)
+        documents = None
+        if file.filename.endswith('.pdf'):
+            loader = PyPDFLoader(BytesIO(file_content))
+            documents = loader.load()
+        elif file.filename.endswith('.docx'):
+            doc = docx.Document(BytesIO(file_content))
+            text = "\n".join([p.text for p in doc.paragraphs])
+            documents = [Document(page_content=text, metadata={})]
+        else:
+            text = file_content.decode('utf-8')
+            documents = [Document(page_content=text, metadata={})]
 
         text_splitter = CharacterTextSplitter(
             chunk_size=1000,
@@ -211,8 +161,8 @@ def upload_file():
             index_name="vetai-docs",
         )
 
-        sup_url = "https://hdknwxzhmxotruzjjxio.supabase.co"
-        key = APP_SECRETS.get('Supabase')
+        sup_url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
         supabase: Client = create_client(sup_url, key)
         response = supabase.table("files").insert(
             {"file_name": filename, "file_size": file_size}).execute()
@@ -225,11 +175,11 @@ def upload_file():
 @app.route("/api/upload_website", methods=['POST'])
 def upload_website():
     try:
-        api_key = APP_SECRETS.get('Firecrawl')
+        api_key = os.environ.get('FIRECRAWL_API_KEY')
         url = request.get_json().get('url')
         loader = FireCrawlLoader(api_key=api_key, url=url, mode="scrape")
         docs = loader.load()
-
+        pc = Pinecone(api_key=os.environ.get('PINECONE_API_KEY'))
         text_splitter = CharacterTextSplitter(
                 chunk_size=1000,
                 chunk_overlap=200,
@@ -241,7 +191,7 @@ def upload_website():
             text.metadata["filename"] = url
 
         embeddings = OpenAIEmbeddings(
-            api_key=APP_SECRETS.get('openai-api'),
+            api_key=os.environ.get('OPENAI_API_KEY'),
             model="text-embedding-3-small"
         )
 
@@ -251,8 +201,8 @@ def upload_website():
             index_name="vetai-docs",
         )
         total_bytes = sum(len(doc.page_content.encode('utf-8')) for doc in docs)
-        sup_url = "https://hdknwxzhmxotruzjjxio.supabase.co"
-        key = APP_SECRETS.get('Supabase')
+        sup_url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
 
         supabase: Client = create_client(sup_url, key)
         response = supabase.table("files").insert({"file_name": url, "file_size": total_bytes}).execute()
@@ -267,8 +217,8 @@ def save_template():
         name = data.get('name')
         text = data.get('text')
 
-        url = "https://hdknwxzhmxotruzjjxio.supabase.co"
-        key = APP_SECRETS.get('Supabase')
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
 
         supabase: Client = create_client(url, key)
         response = (
@@ -283,9 +233,8 @@ def save_template():
 @app.route("/api/load_templates", methods=['GET'])
 def load_templates():
     try:
-        url = "https://hdknwxzhmxotruzjjxio.supabase.co"
-        key = APP_SECRETS.get('Supabase')
-        logger.info(f"Loading templates from {url}, {key}")
+        url = os.environ.get('SUPABASE_URL')
+        key = os.environ.get('SUPABASE_KEY')
 
         supabase: Client = create_client(url, key)
         response = supabase.table("templates").select("*").execute()
@@ -293,7 +242,7 @@ def load_templates():
         return jsonify({'templates': response.data}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-initialize_secrets()
-initialize_pinecone()
-if __name__ == '__main__':
-    app.run(port=5328, debug=True)
+    
+
+if __name__ == '__main__' and os.environ.get('VERCEL_ENV') != 'production':
+    app.run(port=5329, debug=True)
