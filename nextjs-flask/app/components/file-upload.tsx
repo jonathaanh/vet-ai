@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { ClipLoader } from "react-spinners";
 
+
 type SupabaseFile = {
   created_at: string;
   id: string;
@@ -148,14 +149,15 @@ export default function FileUpload() {
       setLoading(false);
     }
   };
+  
 
   const uploadFiles = async (file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("file_size", file.size.toString());
-    console.log("here");
+
     setLoading(true);
     try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("file_size", file.size.toString());
       const response = await fetch("/api/upload_file", {
         method: "POST",
         body: formData,
@@ -252,7 +254,7 @@ export default function FileUpload() {
               id="file-upload"
               multiple
               onChange={handleFileChange}
-              accept=".pdf,.txt,.csv,.doc,.docx"
+              accept=".pdf,.txt,.csv,.docx, .md, .xml, .json, .html"
             />
             <label
               htmlFor="file-upload"

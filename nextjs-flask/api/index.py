@@ -1,21 +1,20 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from werkzeug.utils import secure_filename
 from supabase import create_client, Client
-import tempfile
 import os
 from io import BytesIO
-import docx
 from pinecone import Pinecone, ServerlessSpec
-from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_pinecone import PineconeVectorStore
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.schema import SystemMessage, HumanMessage
 from langchain_community.document_loaders import FireCrawlLoader
 from langchain.schema import Document
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 app = Flask(__name__)
 CORS(app)
@@ -68,7 +67,7 @@ def search_documents():
         }), 200
         
     except Exception as e:
-        logger.error(f"Error searching documents: {str(e)}")
+        # logger.error(f"Error searching documents: {str(e)}")
         return jsonify({'error': str(e)}), 500
     
 @app.route("/api/get_files", methods=['GET'])
@@ -125,51 +124,78 @@ def upload_file():
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'No file part'}), 400
+        
         file = request.files['file']
-        file_content = file.read()
-
-        filename = secure_filename(file.filename)
-        file_size = int(request.form.get('file_size', 0))
-        pc = Pinecone(api_key=os.environ.get('PINECONE_API_KEY'))
-        embeddings = OpenAIEmbeddings(
-            api_key=os.environ.get('OPENAI_API_KEY'),
-            model="text-embedding-3-small"
-        )
-        documents = None
-        if file.filename.endswith('.pdf'):
-            loader = PyPDFLoader(BytesIO(file_content))
-            documents = loader.load()
-        elif file.filename.endswith('.docx'):
-            doc = docx.Document(BytesIO(file_content))
-            text = "\n".join([p.text for p in doc.paragraphs])
-            documents = [Document(page_content=text, metadata={})]
+        file_size = request.form['file_size']
+        filename = file.filename
+        logger.info(f"Uploading file: {filename}")
+        logger.info(f"File size: {file_size}")
+        documents = []
+        if filename.endswith('.pdf'):
+            from PyPDF2 import PdfReader
+            reader = PdfReader(file)
+            for page_num, page in enumerate(reader.pages):
+                text = page.extract_text()
+                if text.strip():
+                    documents.append(Document(
+                        page_content=text,
+                        metadata={"page": page_num + 1, "filename": filename}
+                    ))
+        elif filename.endswith('.docx'):
+            import docx2txt
+            text = docx2txt.process(file)
+            documents.append(Document(
+                page_content=text,
+                metadata={"filename": filename}
+            )) 
+        elif filename.endswith(('.txt', '.md', '.csv', '.json', '.xml', '.html')):
+            text = file.read().decode('utf-8')
+            documents.append(Document(
+                page_content=text,
+                metadata={"filename": filename}
+            ))
         else:
-            text = file_content.decode('utf-8')
-            documents = [Document(page_content=text, metadata={})]
+            return jsonify({'error': 'Unsupported file type'}), 400
 
+        # Split text into chunks
         text_splitter = CharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
             length_function=len,
         )
         texts = text_splitter.split_documents(documents)
-        for text in texts:
-            text.metadata["filename"] = filename
+        logger.info(f"Split into {len(texts)} chunks")
+
+        # Create embeddings and store in Pinecone
+        embeddings = OpenAIEmbeddings(
+            api_key=os.environ.get('OPENAI_API_KEY'),
+            model="text-embedding-3-small"
+        )
+        
         PineconeVectorStore.from_documents(
             documents=texts,
             embedding=embeddings,
             index_name="vetai-docs",
         )
 
-        sup_url = os.environ.get('SUPABASE_URL')
-        key = os.environ.get('SUPABASE_KEY')
-        supabase: Client = create_client(sup_url, key)
-        response = supabase.table("files").insert(
-            {"file_name": filename, "file_size": file_size}).execute()
+        # Store file metadata in Supabase
+        supabase: Client = create_client(
+            os.environ.get('SUPABASE_URL'),
+            os.environ.get('SUPABASE_KEY')
+        )
+        response = supabase.table("files").insert({
+            "file_name": filename, 
+            "file_size": file_size
+        }).execute()
 
-        return jsonify({'message': 'File processed and embeddings stored successfully'}), 200
+        return jsonify({
+            'message': 'File processed and embeddings stored successfully',
+            'chunks': len(texts)
+        }), 200
 
     except Exception as e:
+        logger.error(f"Error processing file: {str(e)}")
+        logger.exception("Full traceback:")
         return jsonify({'error': str(e)}), 500
     
 @app.route("/api/upload_website", methods=['POST'])
@@ -245,4 +271,4 @@ def load_templates():
     
 
 if __name__ == '__main__' and os.environ.get('VERCEL_ENV') != 'production':
-    app.run(port=5329, debug=True)
+    app.run(port=5328)
