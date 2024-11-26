@@ -171,6 +171,8 @@ def upload_file():
             api_key=os.environ.get('OPENAI_API_KEY'),
             model="text-embedding-3-small"
         )
+        logger.info(f"Embeddings: {embeddings}")
+        logger.info(f"Texts: {texts}")
         
         PineconeVectorStore.from_documents(
             documents=texts,
