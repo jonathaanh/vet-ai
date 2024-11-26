@@ -156,7 +156,7 @@ def upload_file():
             ))
         else:
             return jsonify({'error': 'Unsupported file type'}), 400
-
+        logger.info(f"Documents: {documents}")
         # Split text into chunks
         text_splitter = CharacterTextSplitter(
             chunk_size=1000,

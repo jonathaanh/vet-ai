@@ -94,7 +94,7 @@ export default function FileUpload() {
         throw new Error(`Uploading website failed: ${response.statusText}`);
       }
       const data = await response.json();
-      console.log(data);
+      
       getFiles();
     } catch (error) {
       console.error("Uploading website error:", error);
@@ -113,7 +113,7 @@ export default function FileUpload() {
       }
 
       const data = await response.json();
-      console.log(data);
+     
 
       setUploadedFiles(data.files);
     } catch (error) {
@@ -124,7 +124,7 @@ export default function FileUpload() {
   };
 
   const deleteFiles = async (file: string) => {
-    console.log(file);
+   
     setLoading(true);
     try {
       const response = await fetch("/api/delete_file", {
