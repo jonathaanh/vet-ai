@@ -13,6 +13,8 @@ and operational decisions.
 - Prompt Templates: Create, save, and reuse custom prompt templates for streamlined workflows.
 - Adaptive RAG Model: Leverages a Retrieval-Augmented Generation (RAG) model that continuously learns and adapts to user preferences.
 
+
+
 ## Technologies
 - Next.js: Framework for building the frontend
 - Typescript, Tailwind CSS: Tools for coding a responsive and dynamic user interface
@@ -21,4 +23,8 @@ and operational decisions.
 - Pinecone: Vector database enabling efficient semantic search and retrieval
 - Firecrawl: Scalable crawler for ingesting and indexing web content
 
+
+
+
+https://github.com/user-attachments/assets/60b6d91e-0cc9-4006-9b29-f651477f227a
 
