@@ -179,7 +179,6 @@ def upload_file():
             embedding=embeddings,
             index_name="vetai-docs",
         )
-
         # Store file metadata in Supabase
         supabase: Client = create_client(
             os.environ.get('SUPABASE_URL'),
