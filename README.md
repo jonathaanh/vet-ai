@@ -5,6 +5,8 @@ It enables seamless ingestion of medical documents, research papers, URLs, and o
 tools to extract, analyze, and organize information, helping veterinarians deliver better care and make informed clinical 
 and operational decisions.
 
+![image](https://github.com/user-attachments/assets/14c204d0-2a08-4c57-a520-8a9f55b045c1)
+
 ## Features
 - Document Upload: Seamlessly upload PDFs, DOCX, or other text files to our vector database for efficient storage and retrieval.
 - URL Integration: Input URLs to automatically scrape and extract relevant text content.
@@ -18,4 +20,5 @@ and operational decisions.
 - Supabase: PostgreSQL DB used to store file metadata and templates
 - Pinecone: Vector database enabling efficient semantic search and retrieval
 - Firecrawl: Scalable crawler for ingesting and indexing web content
+
 
